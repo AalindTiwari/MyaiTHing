@@ -1,0 +1,408 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>File Explorer</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <style>
+        :root {
+            --bg-primary: #1a1a1a;
+            --bg-secondary: #252526;
+            --accent: #0078d4;
+            --text: #ffffff;
+            --text-secondary: #a0a0a0;
+            --danger: #ff4444;
+            --success: #4caf50;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+            background: var(--bg-primary);
+            color: var(--text);
+            line-height: 1.5;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 2rem;
+        }
+
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 2rem;
+        }
+
+        .upload-zone {
+            background: var(--bg-secondary);
+            border: 2px dashed var(--text-secondary);
+            border-radius: 10px;
+            padding: 2rem;
+            text-align: center;
+            transition: all 0.3s;
+            margin-bottom: 2rem;
+            cursor: pointer;
+        }
+
+        .upload-zone:hover {
+            border-color: var(--accent);
+            background: rgba(0, 120, 212, 0.1);
+        }
+
+        .upload-zone.dragover {
+            border-color: var(--accent);
+            background: rgba(0, 120, 212, 0.2);
+        }
+
+        .files-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+            gap: 1rem;
+        }
+
+        .file-card {
+            background: var(--bg-secondary);
+            border-radius: 8px;
+            padding: 1rem;
+            position: relative;
+            transition: all 0.3s;
+        }
+
+        .file-card:hover {
+            transform: translateY(-2px);
+            background: #2d2d2d;
+        }
+
+        .file-icon {
+            font-size: 2.5rem;
+            color: var(--accent);
+            margin-bottom: 0.5rem;
+        }
+
+        .file-name {
+            font-size: 0.9rem;
+            word-break: break-word;
+            margin-bottom: 0.5rem;
+        }
+
+        .file-meta {
+            font-size: 0.8rem;
+            color: var(--text-secondary);
+        }
+
+        .actions {
+            position: absolute;
+            top: 0.5rem;
+            right: 0.5rem;
+            display: none;
+            gap: 0.5rem;
+        }
+
+        .file-card:hover .actions {
+            display: flex;
+        }
+
+        .btn {
+            background: none;
+            border: none;
+            color: var(--text);
+            cursor: pointer;
+            padding: 0.5rem;
+            border-radius: 4px;
+            transition: all 0.2s;
+        }
+
+        .btn:hover {
+            background: rgba(255, 255, 255, 0.1);
+        }
+
+        .btn-delete:hover {
+            color: var(--danger);
+        }
+
+        .btn-download:hover {
+            color: var(--accent);
+        }
+
+        .toast {
+            position: fixed;
+            bottom: 2rem;
+            right: 2rem;
+            padding: 1rem 2rem;
+            border-radius: 4px;
+            color: white;
+            animation: slideIn 0.3s;
+            z-index: 1000;
+        }
+
+        @keyframes slideIn {
+            from { transform: translateX(100%); opacity: 0; }
+            to { transform: translateX(0); opacity: 1; }
+        }
+
+        .loading {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(0, 0, 0, 0.8);
+            padding: 2rem;
+            border-radius: 8px;
+            display: none;
+        }
+
+        .loading.active {
+            display: block;
+        }
+
+        .upload-progress {
+            position: fixed;
+            bottom: 2rem;
+            left: 2rem;
+            background: var(--bg-secondary);
+            padding: 1rem;
+            border-radius: 4px;
+            display: none;
+        }
+
+        .upload-progress.active {
+            display: block;
+        }
+
+        /* Styles for the notification bar */
+        .notification-bar {
+            display: flex;
+            align-items: center;
+            background-color: #0078d4;
+            color: #ffffff;
+            padding: 0.5rem 1rem;
+        }
+        .notification-bar i {
+            margin-right: 0.5rem;
+            animation: flash 1s infinite;
+        }
+        @keyframes flash {
+            0%, 50%, 100% { opacity: 1; }
+            25%, 75% { opacity: 0; }
+        }
+        .notification-bar.clicked i {
+            animation: none;
+        }
+    </style>
+</head>
+<body>
+    <!-- Notification bar at the top -->
+    <div class="notification-bar" id="notificationBar">
+        <i class="fas fa-bell"></i>
+        <span>Getting image generation and image vision soon</span>
+    </div>
+
+    <div class="container">
+        <div class="header">
+            <h1>File Explorer</h1>
+        </div>
+
+        <div class="upload-zone" id="dropZone">
+            <i class="fas fa-cloud-upload-alt fa-3x"></i>
+            <p>Drag files here or click to upload</p>
+            <input type="file" id="fileInput" hidden multiple>
+        </div>
+
+        <div class="files-grid" id="filesGrid"></div>
+    </div>
+
+    <div class="loading" id="loading">
+        <i class="fas fa-spinner fa-spin fa-2x"></i>
+    </div>
+
+    <div class="upload-progress" id="uploadProgress"></div>
+
+    <script>
+        const API_URL = window.location.origin;
+        const dropZone = document.getElementById('dropZone');
+        const fileInput = document.getElementById('fileInput');
+        const uploadProgress = document.getElementById('uploadProgress');
+        
+        // Initialize the app when the page loads
+        document.addEventListener('DOMContentLoaded', () => {
+            refreshFiles();
+            setupDropZone();
+        });
+
+        // Set up the drop zone event listeners
+        function setupDropZone() {
+            dropZone.addEventListener('click', () => fileInput.click());
+            
+            dropZone.addEventListener('dragover', (e) => {
+                e.preventDefault();
+                dropZone.classList.add('dragover');
+            });
+
+            dropZone.addEventListener('dragleave', () => {
+                dropZone.classList.remove('dragover');
+            });
+
+            dropZone.addEventListener('drop', (e) => {
+                e.preventDefault();
+                dropZone.classList.remove('dragover');
+                const files = e.dataTransfer.files;
+                handleFiles(files);
+            });
+
+            fileInput.addEventListener('change', (e) => {
+                handleFiles(e.target.files);
+            });
+        }
+
+        // Handle loading state
+        function setLoading(state) {
+            document.getElementById('loading').classList.toggle('active', state);
+        }
+
+        // Show toast messages for user feedback
+        function showToast(message, type = 'success') {
+            const toast = document.createElement('div');
+            toast.className = 'toast';
+            toast.style.background = type === 'error' ? 'var(--danger)' : 'var(--success)';
+            toast.textContent = message;
+            document.body.appendChild(toast);
+            setTimeout(() => toast.remove(), 3000);
+        }
+
+        // Format file sizes
+        function formatSize(bytes) {
+            if (bytes === 0) return '0 B';
+            const sizes = ['B', 'KB', 'MB', 'GB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(1024));
+            return `${(bytes / Math.pow(1024, i)).toFixed(1)} ${sizes[i]}`;
+        }
+
+        // Get appropriate icon for file type
+        function getFileIcon(type) {
+            if (type.startsWith('image/')) return 'fa-image';
+            if (type.startsWith('text/')) return 'fa-file-alt';
+            if (type.startsWith('video/')) return 'fa-video';
+            if (type.startsWith('audio/')) return 'fa-music';
+            if (type.includes('pdf')) return 'fa-file-pdf';
+            if (type.includes('word')) return 'fa-file-word';
+            if (type.includes('excel')) return 'fa-file-excel';
+            if (type.includes('zip') || type.includes('rar')) return 'fa-file-archive';
+            return 'fa-file';
+        }
+
+        // Refresh the files list
+        async function refreshFiles() {
+            try {
+                setLoading(true);
+                const response = await fetch(`${API_URL}/api/files`);
+                if (!response.ok) throw new Error('Failed to fetch files');
+                
+                const files = await response.json();
+                const grid = document.getElementById('filesGrid');
+                grid.innerHTML = '';
+
+                files.forEach(file => {
+                    const card = document.createElement('div');
+                    card.className = 'file-card';
+                    card.innerHTML = `
+                        <i class="fas ${getFileIcon(file.type)} file-icon"></i>
+                        <div class="file-name">${file.name}</div>
+                        <div class="file-meta">
+                            ${formatSize(file.size)}<br>
+                            ${new Date(file.modified).toLocaleString()}
+                        </div>
+                        <div class="actions">
+                            <button class="btn btn-download" onclick="downloadFile('${file.name}')">
+                                <i class="fas fa-download"></i>
+                            </button>
+                            <button class="btn btn-delete" onclick="deleteFile('${file.name}')">
+                                <i class="fas fa-trash"></i>
+                            </button>
+                        </div>
+                    `;
+                    grid.appendChild(card);
+                });
+            } catch (error) {
+                showToast('Failed to load files', 'error');
+                console.error(error);
+            } finally {
+                setLoading(false);
+            }
+        }
+
+        // Handle multiple file uploads
+        function handleFiles(files) {
+            Array.from(files).forEach(file => {
+                uploadFile(file);
+            });
+        }
+
+        // Upload a single file
+        async function uploadFile(file) {
+            try {
+                const formData = new FormData();
+                formData.append('file', file);
+
+                const response = await fetch(`${API_URL}/api/upload`, {
+                    method: 'POST',
+                    body: formData
+                });
+
+                if (!response.ok) throw new Error('Upload failed');
+                
+                showToast(`${file.name} uploaded successfully`);
+                refreshFiles();
+            } catch (error) {
+                showToast(`Failed to upload ${file.name}`, 'error');
+                console.error(error);
+            }
+        }
+
+        // Download a file
+        function downloadFile(filename) {
+            window.location.href = `${API_URL}/api/download/${filename}`;
+        }
+
+        // Delete a file
+        async function deleteFile(filename) {
+            if (!confirm(`Are you sure you want to delete ${filename}?`)) return;
+
+            try {
+                setLoading(true);
+                const response = await fetch(`${API_URL}/api/delete/${filename}`, {
+                    method: 'DELETE'
+                });
+
+                if (!response.ok) throw new Error('Delete failed');
+
+                showToast(`${filename} deleted successfully`);
+                refreshFiles();
+            } catch (error) {
+                showToast(`Failed to delete ${filename}`, 'error');
+                console.error(error);
+            } finally {
+                setLoading(false);
+            }
+        }
+
+        // Play sound on page load
+        window.addEventListener('DOMContentLoaded', () => {
+            const audio = new Audio('path/to/sound.mp3');
+            audio.play();
+        });
+
+        // Remove highlight from notification bar on click
+        const notificationBar = document.getElementById('notificationBar');
+        notificationBar.addEventListener('click', () => {
+            notificationBar.classList.add('clicked');
+        });
+    </script>
+</body>
+</html>

@@ -1,0 +1,1 @@
+- Use python for simple tasks where possible
